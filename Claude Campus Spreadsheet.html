@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Campus Weekly Metrics</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.js"></script>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#f9fafb;}
+  input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+  .sticky-col{position:sticky;left:0;z-index:10;}
+  .drawer-scroll{overflow-y:auto;flex:1;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useMemo,useEffect,useRef} = React;
+
+const CAMPUSES = ["Algonac","Chesterfield","Detroit","Downriver","FHills","LakeOrion","Lapeer","Plymouth","Pontiac","Romeo","RoyalOak","Troy","Warren","WhiteLake"];
+
+const METRICS = [
+  {key:"tapdot",label:"Tapdot Taps",type:"number",goal:null},
+  {key:"emailDelivered",label:"Email Delivered",type:"number",goal:null},
+  {key:"emailOpened",label:"Email Opened %",type:"number",goal:30},
+  {key:"emailOpenedYTD",label:"Opened YTD Avg",type:"number",goal:null,ro:true,ytd:"emailOpened"},
+  {key:"emailClicked",label:"Email Clicked %",type:"number",goal:3},
+  {key:"emailClickedYTD",label:"Clicked YTD Avg",type:"number",goal:null,ro:true,ytd:"emailClicked"},
+  {key:"livestream",label:"Livestream Views",type:"number",goal:null},
+  {key:"attendInPerson",label:"In-Person",type:"number",goal:null},
+  {key:"attendOnline",label:"Online Attendance",type:"number",goal:null},
+  {key:"attendTotal",label:"Total Attendance",type:"number",goal:null,ro:true},
+  {key:"socialPosts",label:"Social Posts",type:"number",goal:null},
+  {key:"socialEngagement",label:"Social Engagement",type:"number",goal:null},
+  {key:"openProjects",label:"Open Projects w/Comms",type:"number",goal:null},
+  {key:"givingWeek",label:"Giving This Week",type:"number",goal:null},
+  {key:"givingYTD",label:"Giving YTD",type:"number",goal:null},
+  {key:"givingPct",label:"% to Budget YTD",type:"number",goal:null},
+  {key:"wayfinding",label:"Way Finding",type:"select",options:["","Complete","In Progress","Not Started"],goal:"Complete"},
+  {key:"bulletin",label:"Bulletin (Canva)",type:"select",options:["","Done","In Progress","Not Done"],goal:"Done"},
+  {key:"valuesRemoval",label:"Values Removal",type:"select",options:["","Complete","In Progress","Not Started"],goal:"Complete"},
+];
+
+const SPECIALS = [
+  {key:"goodFriday",label:"Good Friday Views"},
+  {key:"christmasEve",label:"Christmas Eve Views"},
+];
+
+const defaultRow = () => Object.fromEntries([...METRICS,...SPECIALS].map(m=>[m.key,""]));
+const initData = () => Object.fromEntries(CAMPUSES.map(c=>[c,defaultRow()]));
+const defaultDetail = () => ({
+  wayfinding:"",tapdotDate:"",emailDay:"",emailFreq:"",seatbackType:"",seatingCapacity:"",canva:[],
+  notesEnv:"",notesEvent:"",notesSpecial:"",commsCallDate:"",commsCallNotes:"",visitDate:"",visitNotes:"",
+  staffSocial:"",staffAssim:"",staffKids:"",staffAdmin:"",staffPastor:"",staffAssocPastor:"",campusHours:""
+});
+const initDetails = () => Object.fromEntries(CAMPUSES.map(c=>[c,defaultDetail()]));
+
+const toISO = d => d.toISOString().slice(0,10);
+const wKey = w => "week:"+w;
+const dKey = c => "detail:"+c;
+
+// Simple localStorage-based storage API (mirrors window.storage interface)
+const storage = {
+  get: async (key) => {
+    try { const v=localStorage.getItem(key); return v?{key,value:v}:null; } catch { return null; }
+  },
+  set: async (key,value) => {
+    try { localStorage.setItem(key,value); return {key,value}; } catch { return null; }
+  },
+  delete: async (key) => {
+    try { localStorage.removeItem(key); return {key,deleted:true}; } catch { return null; }
+  },
+  list: async (prefix="") => {
+    try {
+      const keys=[];
+      for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith(prefix))keys.push(k);}
+      return {keys};
+    } catch { return {keys:[]}; }
+  }
+};
+
+function getSunday(s){const d=new Date(s+"T00:00:00");d.setDate(d.getDate()-d.getDay());return toISO(d);}
+function shiftWeek(s,n){const d=new Date(s+"T00:00:00");d.setDate(d.getDate()+n*7);return toISO(d);}
+function fmtDate(s){return new Date(s+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});}
+
+function cellColor(m,v){
+  if(m.goal===null||v===""||v==null)return "";
+  if(m.type==="select")return v===m.goal?"bg-green-100 text-green-800":"bg-red-100 text-red-800";
+  const n=parseFloat(v);if(isNaN(n))return "";
+  if(n>=m.goal)return "bg-green-100 text-green-800";
+  if(n>=m.goal*0.75)return "bg-yellow-100 text-yellow-800";
+  return "bg-red-100 text-red-800";
+}
+
+function Drawer({campus,det,onChange,onClose,onSave,ss}){
+  const ref=useRef();
+  useEffect(()=>{if(ref.current)ref.current.focus();},[]);
+  const set=(k,v)=>onChange({...det,[k]:v});
+  const togCanva=v=>{const a=Array.isArray(det.canva)?det.canva:[];onChange({...det,canva:a.includes(v)?a.filter(x=>x!==v):[...a,v]});};
+  const inp="w-full border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400";
+  const ta=inp+" resize-none";
+  const Fld=({label,children})=><div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>{label}</div>{children}</div>;
+  const Sec=({t})=><div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#2563eb",marginTop:16,marginBottom:8,borderBottom:"1px solid #dbeafe",paddingBottom:4}}>{t}</div>;
+
+  return (
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,zIndex:50,display:"flex",justifyContent:"flex-end",background:"rgba(0,0,0,0.4)"}}>
+      <div ref={ref} tabIndex={-1} style={{width:"100%",maxWidth:420,background:"#fff",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",display:"flex",flexDirection:"column",height:"100vh"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 20px",background:"#1f2937",color:"#fff",flexShrink:0}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:18}}>{campus}</div>
+            <div style={{fontSize:12,color:"#9ca3af"}}>Campus Detail</div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <button onClick={onSave} style={{fontSize:12,padding:"6px 12px",borderRadius:6,fontWeight:600,border:"none",cursor:"pointer",background:ss==="saved"?"#22c55e":ss==="error"?"#ef4444":"#3b82f6",color:"#fff"}}>
+              {ss==="saving"?"Saving…":ss==="saved"?"✓ Saved!":ss==="error"?"Error":"💾 Save"}
+            </button>
+            <button onClick={onClose} style={{background:"none",border:"none",color:"#d1d5db",fontSize:24,cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>
+          </div>
+        </div>
+        <div className="drawer-scroll" style={{padding:"16px 20px"}}>
+          <Sec t="Comms"/>
+          <Fld label="Wayfinding">
+            <div style={{display:"flex",gap:16}}>
+              {["Complete","Changes Needed"].map(v=>(
+                <label key={v} style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
+                  <input type="radio" checked={det.wayfinding===v} onChange={()=>set("wayfinding",v)}/> {v}
+                </label>
+              ))}
+            </div>
+          </Fld>
+          <Fld label="Tapdot Date"><input type="date" value={det.tapdotDate} onChange={e=>set("tapdotDate",e.target.value)} className={inp}/></Fld>
+          <Fld label="Email Cadence">
+            <div style={{display:"flex",gap:8}}>
+              <select value={det.emailDay} onChange={e=>set("emailDay",e.target.value)} className={inp}>
+                <option value="">Day…</option>
+                {["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"].map(d=><option key={d}>{d}</option>)}
+              </select>
+              <select value={det.emailFreq} onChange={e=>set("emailFreq",e.target.value)} className={inp}>
+                <option value="">Freq…</option><option>Weekly</option><option>Monthly</option>
+              </select>
+            </div>
+          </Fld>
+          <Fld label="Seatback Type">
+            <div style={{display:"flex",gap:16}}>
+              {["Fabric","Plastic","Both"].map(v=>(
+                <label key={v} style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
+                  <input type="radio" checked={det.seatbackType===v} onChange={()=>set("seatbackType",v)}/> {v}
+                </label>
+              ))}
+            </div>
+          </Fld>
+          <Fld label="Seating Capacity"><input type="number" value={det.seatingCapacity} onChange={e=>set("seatingCapacity",e.target.value)} className={inp} placeholder="0"/></Fld>
+          <Fld label="Canva Use">
+            <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+              {["Bulletin","Message Notes","Other"].map(v=>(
+                <label key={v} style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
+                  <input type="checkbox" checked={(Array.isArray(det.canva)?det.canva:[]).includes(v)} onChange={()=>togCanva(v)}/> {v}
+                </label>
+              ))}
+            </div>
+          </Fld>
+          <Fld label="Environment Notes"><textarea rows={2} value={det.notesEnv} onChange={e=>set("notesEnv",e.target.value)} className={ta} placeholder="Environment notes…"/></Fld>
+          <Fld label="Event / Design Notes"><textarea rows={2} value={det.notesEvent} onChange={e=>set("notesEvent",e.target.value)} className={ta} placeholder="Event/design notes…"/></Fld>
+          <Fld label="Special Projects"><textarea rows={2} value={det.notesSpecial} onChange={e=>set("notesSpecial",e.target.value)} className={ta} placeholder="Special projects…"/></Fld>
+          <Fld label="Weekly Comms Call">
+            <input type="date" value={det.commsCallDate} onChange={e=>set("commsCallDate",e.target.value)} className={inp} style={{marginBottom:4}}/>
+            <textarea rows={2} value={det.commsCallNotes} onChange={e=>set("commsCallNotes",e.target.value)} className={ta} placeholder="Call notes…"/>
+          </Fld>
+          <Fld label="Campus Visit">
+            <input type="date" value={det.visitDate} onChange={e=>set("visitDate",e.target.value)} className={inp} style={{marginBottom:4}}/>
+            <textarea rows={2} value={det.visitNotes} onChange={e=>set("visitNotes",e.target.value)} className={ta} placeholder="Visit notes…"/>
+          </Fld>
+          <Sec t="Staff"/>
+          {[["staffPastor","Campus Pastor"],["staffAdmin","Admin"],["staffAssocPastor","Assoc / Exec Pastor"],["staffAssim","Assimilation"],["staffSocial","Social"],["staffKids","Kids / Students"]].map(([k,l])=>(
+            <Fld key={k} label={l}><textarea rows={2} value={det[k]} onChange={e=>set(k,e.target.value)} className={ta} placeholder={l+" names…"}/></Fld>
+          ))}
+          <Fld label="Campus Hours"><textarea rows={2} value={det.campusHours} onChange={e=>set("campusHours",e.target.value)} className={ta} placeholder="Hours…"/></Fld>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const [week,setWeek] = useState(()=>getSunday(toISO(new Date())));
+  const [data,setData] = useState(initData);
+  const [prevData,setPrevData] = useState(null);
+  const [ytdData,setYtdData] = useState(null);
+  const [details,setDetails] = useState(initDetails);
+  const [drawer,setDrawer] = useState(null);
+  const [dss,setDss] = useState("");
+  const [sfGood,setSfGood] = useState(false);
+  const [sfXmas,setSfXmas] = useState(false);
+  const [saveSt,setSaveSt] = useState("");
+  const [loading,setLoading] = useState(false);
+  const [view,setView] = useState("entry");
+
+  const ytdSrcMap = useMemo(()=>Object.fromEntries(METRICS.filter(m=>m.ytd).map(m=>[m.key,m.ytd])),[]);
+
+  const calcYTD = async (curWeek,curData) => {
+    try {
+      const yr=curWeek.slice(0,4);
+      const list=await storage.list("week:");
+      if(!list?.keys?.length)return curData;
+      const keys=list.keys.filter(k=>k.startsWith("week:"+yr+"-")&&k<wKey(curWeek));
+      const weeks=(await Promise.all(keys.map(k=>storage.get(k).then(r=>r?JSON.parse(r.value):null).catch(()=>null)))).filter(Boolean);
+      const out={};
+      CAMPUSES.forEach(c=>{
+        out[c]={...curData[c]};
+        Object.entries(ytdSrcMap).forEach(([ytdK,srcK])=>{
+          const vals=[...weeks.map(w=>w[c]?.[srcK]).filter(v=>v!==""&&v!=null).map(Number).filter(n=>!isNaN(n)),...(curData[c]?.[srcK]!==""&&curData[c]?.[srcK]!=null?[parseFloat(curData[c][srcK])]:[])].filter(n=>!isNaN(n));
+          out[c][ytdK]=vals.length?(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2):"";
+        });
+      });
+      return out;
+    } catch { return curData; }
+  };
+
+  useEffect(()=>{
+    let alive=true;
+    setLoading(true);
+    const prev=shiftWeek(week,-1);
+    const yr=week.slice(0,4);
+    (async()=>{
+      try{
+        const results=await Promise.all([
+          storage.get(wKey(week)),
+          storage.get(wKey(prev)),
+          storage.list("week:"),
+          ...CAMPUSES.map(c=>storage.get(dKey(c)))
+        ]);
+        if(!alive)return;
+        const [curRes,prvRes,listRes,...detRes]=results;
+        let loaded=curRes?JSON.parse(curRes.value):initData();
+        setPrevData(prvRes?JSON.parse(prvRes.value):null);
+        loaded=await calcYTD(week,loaded);
+        if(!alive)return;
+        setData(loaded);
+        const det=initDetails();
+        CAMPUSES.forEach((c,i)=>{if(detRes[i])det[c]={...defaultDetail(),...JSON.parse(detRes[i].value)};});
+        setDetails(det);
+        if(listRes?.keys?.length){
+          const yrKeys=listRes.keys.filter(k=>k.startsWith("week:"+yr+"-")&&k<=wKey(week));
+          if(yrKeys.length){
+            const wds=(await Promise.all(yrKeys.map(k=>storage.get(k).then(r=>r?JSON.parse(r.value):null).catch(()=>null)))).filter(Boolean);
+            if(wds.length&&alive){
+              const ytd={};
+              CAMPUSES.forEach(c=>{ytd[c]={};METRICS.filter(m=>m.type==="number"&&!m.ro).forEach(m=>{const v=wds.map(w=>w[c]?.[m.key]).filter(v=>v!==""&&v!=null).map(Number).filter(n=>!isNaN(n));ytd[c][m.key]=v.length?v.reduce((a,b)=>a+b,0)/v.length:null;});});
+              setYtdData(ytd);
+            } else if(alive) setYtdData(null);
+          } else if(alive) setYtdData(null);
+        } else if(alive) setYtdData(null);
+      }catch(e){console.error(e);}
+      finally{if(alive)setLoading(false);}
+    })();
+    return()=>{alive=false;};
+  },[week]);
+
+  const update=(campus,key,val)=>{
+    setData(prev=>{
+      const row={...prev[campus],[key]:val};
+      if(key==="attendInPerson"||key==="attendOnline"){
+        const ip=parseFloat(key==="attendInPerson"?val:row.attendInPerson)||0;
+        const ol=parseFloat(key==="attendOnline"?val:row.attendOnline)||0;
+        row.attendTotal=ip+ol>0?String(ip+ol):"";
+      }
+      const next={...prev,[campus]:row};
+      if(Object.values(ytdSrcMap).includes(key))calcYTD(week,next).then(r=>setData(r));
+      return next;
+    });
+  };
+
+  const save=async()=>{
+    setSaveSt("saving");
+    try{
+      const ts={};
+      CAMPUSES.forEach(c=>{ts[c]={...data[c]};Object.keys(ytdSrcMap).forEach(k=>{ts[c][k]="";});});
+      await storage.set(wKey(week),JSON.stringify(ts));
+      setSaveSt("saved");
+    }catch{setSaveSt("error");}
+    setTimeout(()=>setSaveSt(""),2500);
+  };
+
+  const saveDet=async c=>{
+    setDss("saving");
+    try{await storage.set(dKey(c),JSON.stringify(details[c]));setDss("saved");}
+    catch{setDss("error");}
+    setTimeout(()=>setDss(""),2500);
+  };
+
+  const summary=useMemo(()=>METRICS.map(m=>{
+    const vals=CAMPUSES.map(c=>data[c][m.key]).filter(v=>v!=="");
+    if(m.type==="select"){const met=vals.filter(v=>v===m.goal).length;return{met,total:vals.length,pct:vals.length?Math.round(met/vals.length*100):null,avg:null,sum:null};}
+    const nums=vals.map(Number).filter(n=>!isNaN(n));
+    const sum=nums.reduce((a,b)=>a+b,0);
+    const avg=nums.length?(sum/nums.length).toFixed(1):null;
+    const met=m.goal!==null?nums.filter(n=>n>=m.goal).length:null;
+    const pct=(m.goal!==null&&nums.length)?Math.round(met/nums.length*100):null;
+    return{met,total:nums.length,sum,avg,pct};
+  }),[data]);
+
+  const spTotals=useMemo(()=>Object.fromEntries(SPECIALS.map(e=>{const n=CAMPUSES.map(c=>data[c][e.key]).map(Number).filter(n=>!isNaN(n)&&n>0);return[e.key,n.reduce((a,b)=>a+b,0)];})),[data]);
+
+  const allCols=[...METRICS,...(sfGood?[{key:"goodFriday",label:"Good Friday Views",type:"number",goal:null}]:[]),...(sfXmas?[{key:"christmasEve",label:"Christmas Eve Views",type:"number",goal:null}]:[])];
+
+  const downloadCSV=()=>{
+    const hp=!!prevData,hy=!!ytdData;
+    const hdr=["Campus",...allCols.flatMap(m=>{const c=[m.label];if(hp&&m.type==="number"&&!m.ro)c.push(m.label+" (Prev)",m.label+" (Δ)");if(hy&&m.type==="number"&&!m.ro)c.push(m.label+" (YTD Avg)");return c;})];
+    const rows=CAMPUSES.map(c=>[c,...allCols.flatMap(m=>{const cv=data[c][m.key]??"";const cols=[cv];if(hp&&m.type==="number"&&!m.ro){const pv=prevData?.[c]?.[m.key]??"";cols.push(pv,cv!==""&&pv!==""?(parseFloat(cv)-parseFloat(pv)).toFixed(1):"");}if(hy&&m.type==="number"&&!m.ro)cols.push(ytdData?.[c]?.[m.key]!=null?parseFloat(ytdData[c][m.key]).toFixed(1):"");return cols;})]);
+    const csv=[hdr,...rows].map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a=document.createElement("a");
+    a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
+    a.download="campus-metrics-"+week+".csv";
+    a.click();
+  };
+
+  const btnBase={fontSize:12,padding:"6px 14px",borderRadius:8,fontWeight:600,border:"1px solid #d1d5db",cursor:"pointer"};
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f9fafb",padding:16}}>
+      {drawer&&<Drawer campus={drawer} det={details[drawer]||defaultDetail()} onChange={d=>setDetails(p=>({...p,[drawer]:d}))} onClose={()=>setDrawer(null)} onSave={()=>saveDet(drawer)} ss={dss}/>}
+
+      {/* Header */}
+      <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:16}}>
+        <div>
+          <h1 style={{margin:0,fontSize:24,fontWeight:800,color:"#1f2937"}}>Campus Weekly Metrics</h1>
+          <p style={{margin:0,fontSize:13,color:"#6b7280"}}>Click any campus name to open its detail drawer</p>
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:4,background:"#fff",border:"1px solid #e5e7eb",borderRadius:8,padding:"4px 8px",boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}}>
+            <button onClick={()=>setWeek(shiftWeek(week,-1))} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#6b7280",padding:"0 4px",fontWeight:700}}>‹</button>
+            <span style={{fontSize:13,fontWeight:600,color:"#374151",minWidth:140,textAlign:"center"}}>Week of {fmtDate(week)}</span>
+            <button onClick={()=>setWeek(shiftWeek(week,1))} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#6b7280",padding:"0 4px",fontWeight:700}}>›</button>
+          </div>
+          <button onClick={()=>setWeek(getSunday(toISO(new Date())))} style={{...btnBase,background:"#fff",color:"#374151"}}>This Week</button>
+          <button onClick={()=>setSfGood(v=>!v)} style={{...btnBase,background:sfGood?"#7c3aed":"#fff",color:sfGood?"#fff":"#374151",borderColor:sfGood?"#7c3aed":"#d1d5db",borderRadius:20}}>{sfGood?"✓ ":"+ "}Good Friday</button>
+          <button onClick={()=>setSfXmas(v=>!v)} style={{...btnBase,background:sfXmas?"#7c3aed":"#fff",color:sfXmas?"#fff":"#374151",borderColor:sfXmas?"#7c3aed":"#d1d5db",borderRadius:20}}>{sfXmas?"✓ ":"+ "}Christmas Eve</button>
+          <button onClick={save} style={{...btnBase,background:saveSt==="saved"?"#22c55e":saveSt==="error"?"#ef4444":"#2563eb",color:"#fff",border:"none"}}>
+            {saveSt==="saving"?"Saving…":saveSt==="saved"?"✓ Saved!":saveSt==="error"?"Error":"💾 Save"}
+          </button>
+          <button onClick={downloadCSV} style={{...btnBase,background:"#fff",color:"#374151"}}>⬇ Download CSV</button>
+        </div>
+      </div>
+
+      {/* View toggle */}
+      <div style={{display:"flex",gap:4,marginBottom:16,background:"#fff",border:"1px solid #e5e7eb",borderRadius:8,padding:4,width:"fit-content",boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}}>
+        {[["entry","📝 Enter Data"],["compare","↔ vs Prev Week"],["ytd","📊 YTD Avg"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setView(v)} style={{fontSize:12,padding:"6px 14px",borderRadius:6,fontWeight:600,border:"none",cursor:"pointer",background:view===v?"#1f2937":"transparent",color:view===v?"#fff":"#6b7280",transition:"all 0.15s"}}>{l}</button>
+        ))}
+      </div>
+
+      {view==="compare"&&!prevData&&!loading&&<div style={{marginBottom:12,padding:"8px 16px",background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,fontSize:12,color:"#92400e"}}>No saved data for previous week. Save prior weeks to enable comparisons.</div>}
+      {view==="ytd"&&!ytdData&&!loading&&<div style={{marginBottom:12,padding:"8px 16px",background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,fontSize:12,color:"#92400e"}}>No saved data for {week.slice(0,4)} yet.</div>}
+
+      {loading?<div style={{textAlign:"center",padding:"64px 0",color:"#9ca3af",fontSize:16}}>Loading…</div>:(
+        <>
+          {/* Summary cards */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8,marginBottom:20}}>
+            {METRICS.filter(m=>!m.ro).map(m=>{
+              const s=summary[METRICS.indexOf(m)];
+              return(
+                <div key={m.key} style={{background:"#fff",borderRadius:10,border:"1px solid #e5e7eb",padding:"10px 12px",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+                  <div style={{fontSize:11,color:"#6b7280",fontWeight:600,marginBottom:4,lineHeight:1.3}}>{m.label}</div>
+                  {m.goal===null?(
+                    <>
+                      <div style={{fontSize:22,fontWeight:800,color:"#2563eb"}}>{s.sum??0}</div>
+                      <div style={{fontSize:11,color:"#9ca3af"}}>Total · Avg {s.avg??0}</div>
+                    </>
+                  ):s.pct!==null?(
+                    <>
+                      <div style={{fontSize:22,fontWeight:800,color:s.pct>=75?"#16a34a":s.pct>=50?"#d97706":"#dc2626"}}>{s.pct}%</div>
+                      <div style={{fontSize:11,color:"#9ca3af"}}>{m.type==="number"?"Avg: "+s.avg+" · "+s.met+"/"+s.total+" on goal":s.met+"/"+s.total+" on goal"}</div>
+                    </>
+                  ):(
+                    <div style={{fontSize:13,color:"#9ca3af",marginTop:4}}>No data</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {(sfGood||sfXmas)&&<div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+            {sfGood&&<div style={{background:"#f5f3ff",border:"1px solid #ddd6fe",borderRadius:8,padding:"10px 16px",display:"flex",alignItems:"center",gap:12}}><span style={{fontSize:13,fontWeight:600,color:"#6d28d9"}}>Good Friday Total:</span><span style={{fontSize:22,fontWeight:800,color:"#5b21b6"}}>{spTotals.goodFriday||0}</span></div>}
+            {sfXmas&&<div style={{background:"#f5f3ff",border:"1px solid #ddd6fe",borderRadius:8,padding:"10px 16px",display:"flex",alignItems:"center",gap:12}}><span style={{fontSize:13,fontWeight:600,color:"#6d28d9"}}>Christmas Eve Total:</span><span style={{fontSize:22,fontWeight:800,color:"#5b21b6"}}>{spTotals.christmasEve||0}</span></div>}
+          </div>}
+
+          {/* Table */}
+          <div style={{overflowX:"auto",borderRadius:12,border:"1px solid #e5e7eb",boxShadow:"0 1px 4px rgba(0,0,0,0.08)",background:"#fff"}}>
+            <table style={{width:"100%",fontSize:13,borderCollapse:"collapse"}}>
+              <thead>
+                <tr style={{background:"#1f2937",color:"#fff"}}>
+                  <th className="sticky-col" style={{textAlign:"left",padding:"10px 16px",fontWeight:700,background:"#1f2937",minWidth:110,whiteSpace:"nowrap"}}>Campus</th>
+                  {allCols.map(m=>{
+                    const isSp=m.key==="goodFriday"||m.key==="christmasEve";
+                    const isYTD=!!m.ytd;
+                    let sub=m.goal!==null?"Goal: "+m.goal+(m.key.startsWith("email")&&!isYTD?"%":""):m.ro?(isYTD?"Auto YTD avg":"Auto-calc"):"Track only";
+                    if(view==="compare"&&m.type==="number"&&!m.ro&&!isYTD)sub="Curr / Prev / Δ";
+                    if(view==="ytd"&&m.type==="number"&&!m.ro&&!isYTD)sub="Curr / YTD Avg";
+                    return <th key={m.key} style={{padding:"10px 12px",fontWeight:700,textAlign:"center",minWidth:120,background:isSp?"#4c1d95":isYTD?"#1e3a8a":"transparent",whiteSpace:"normal"}}>
+                      <div>{m.label}</div>
+                      <div style={{fontWeight:400,fontSize:10,color:isYTD?"#93c5fd":"#9ca3af",marginTop:2}}>{sub}</div>
+                    </th>;
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {CAMPUSES.map((c,i)=>(
+                  <tr key={c} style={{background:i%2===0?"#fff":"#f9fafb"}}>
+                    <td className="sticky-col" style={{padding:"8px 16px",background:i%2===0?"#fff":"#f9fafb"}}>
+                      <button onClick={()=>{setDrawer(c);setDss("");}} style={{background:"none",border:"none",cursor:"pointer",color:"#2563eb",fontWeight:600,fontSize:13,display:"flex",alignItems:"center",gap:4,padding:0}}>
+                        {c} <span style={{color:"#9ca3af",fontSize:11}}>›</span>
+                      </button>
+                    </td>
+                    {allCols.map(m=>{
+                      const val=data[c][m.key];
+                      const clr=cellColor(m,val);
+                      const isSp=m.key==="goodFriday"||m.key==="christmasEve";
+                      const isYTD=!!m.ytd;
+                      const isNum=m.type==="number"&&!m.ro&&!isYTD;
+                      let cell;
+
+                      const clrStyle = clr.includes("green") ? {background:"#dcfce7",color:"#166534"} : clr.includes("yellow") ? {background:"#fef9c3",color:"#854d0e"} : clr.includes("red") ? {background:"#fee2e2",color:"#991b1b"} : {};
+
+                      if(isYTD){
+                        cell=<div style={{borderRadius:6,padding:"4px 8px",fontSize:11,textAlign:"center",fontWeight:700,color:"#1d4ed8",border:"1px solid #bfdbfe",background:"#eff6ff"}}>{val!==""&&val!=null?parseFloat(val).toFixed(1)+"%":"—"}</div>;
+                      } else if(m.type==="select"){
+                        cell=<select value={val} onChange={e=>update(c,m.key,e.target.value)} style={{borderRadius:6,padding:"4px 8px",fontSize:11,border:"1px solid #d1d5db",width:"100%",textAlign:"center",...clrStyle}}>
+                          {m.options.map(o=><option key={o} value={o}>{o||"— Select —"}</option>)}
+                        </select>;
+                      } else if(m.ro){
+                        cell=<div style={{borderRadius:6,padding:"4px 8px",fontSize:11,textAlign:"center",fontWeight:700,background:"#f3f4f6",color:"#374151",border:"1px solid #e5e7eb"}}>{val||"—"}</div>;
+                      } else if(view==="entry"){
+                        cell=<input type="number" value={val} onChange={e=>update(c,m.key,e.target.value)} placeholder="0" style={{borderRadius:6,padding:"4px 8px",fontSize:11,border:"1px solid #d1d5db",width:"100%",textAlign:"center",background:isSp?"#f5f3ff":"#fff",...clrStyle}}/>;
+                      } else if(view==="compare"&&isNum){
+                        const pv=prevData?.[c]?.[m.key];
+                        const diff=val!==""&&pv!==""&&pv!=null?(parseFloat(val)-parseFloat(pv)):null;
+                        cell=<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                          <span style={{fontSize:11,fontWeight:700,padding:"2px 4px",borderRadius:4,...clrStyle}}>{val!==""?val:"—"}</span>
+                          <span style={{fontSize:11,color:"#9ca3af"}}>{pv!=null&&pv!==""?pv:"—"}</span>
+                          {diff!==null?<span style={{fontSize:11,fontWeight:600,color:diff>0?"#16a34a":diff<0?"#ef4444":"#9ca3af"}}>{diff>0?"▲":diff<0?"▼":"±"}{Math.abs(diff)}</span>:<span style={{fontSize:11,color:"#d1d5db"}}>—</span>}
+                        </div>;
+                      } else if(view==="ytd"&&isNum){
+                        const yv=ytdData?.[c]?.[m.key];
+                        cell=<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                          <span style={{fontSize:11,fontWeight:700,padding:"2px 4px",borderRadius:4,...clrStyle}}>{val!==""?val:"—"}</span>
+                          <span style={{fontSize:11,color:"#3b82f6"}}>{yv!=null?parseFloat(yv).toFixed(1):"—"}</span>
+                        </div>;
+                      } else {
+                        cell=<span style={{fontSize:11,color:"#6b7280"}}>{val!==""?val:"—"}</span>;
+                      }
+
+                      return <td key={m.key} style={{padding:"6px 8px",textAlign:"center",background:isSp?"#faf5ff":isYTD?"#eff6ff":"transparent"}}>{cell}</td>;
+                    })}
+                  </tr>
+                ))}
+
+                {/* Totals row */}
+                <tr style={{background:"#f3f4f6",borderTop:"2px solid #d1d5db",fontWeight:700}}>
+                  <td className="sticky-col" style={{padding:"8px 16px",color:"#374151",background:"#f3f4f6",fontSize:11,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700}}>Totals / Avg</td>
+                  {allCols.map(m=>{
+                    const isSp=m.key==="goodFriday"||m.key==="christmasEve";
+                    const isYTD=!!m.ytd;
+                    if(m.type==="select"){
+                      const met=CAMPUSES.filter(c=>data[c][m.key]===m.goal).length;
+                      const fil=CAMPUSES.filter(c=>data[c][m.key]!=="").length;
+                      return <td key={m.key} style={{padding:"8px",textAlign:"center",fontSize:11,color:"#4b5563"}}>{fil?met+"/"+fil:"—"}</td>;
+                    }
+                    const nums=CAMPUSES.map(c=>data[c][m.key]).filter(v=>v!=="").map(Number).filter(n=>!isNaN(n));
+                    const sum=nums.reduce((a,b)=>a+b,0);
+                    const avg=nums.length?(sum/nums.length).toFixed(1):null;
+                    if(isYTD)return <td key={m.key} style={{padding:"8px",textAlign:"center",fontSize:11,background:"#eff6ff"}}>{avg!==null?<span style={{color:"#1d4ed8",fontWeight:700}}>{avg}%</span>:"—"}</td>;
+                    let extra=null;
+                    if(view==="compare"&&!m.ro&&prevData){
+                      const pn=CAMPUSES.map(c=>prevData[c]?.[m.key]).filter(v=>v!==""&&v!=null).map(Number).filter(n=>!isNaN(n));
+                      const pa=pn.length?(pn.reduce((a,b)=>a+b,0)/pn.length).toFixed(1):null;
+                      const df=avg&&pa?(parseFloat(avg)-parseFloat(pa)).toFixed(1):null;
+                      extra=<div style={{fontSize:10,color:"#9ca3af"}}>prev {pa??"—"}{df!=null?<span style={{color:parseFloat(df)>0?"#16a34a":"#ef4444"}}>{parseFloat(df)>0?" ▲":" ▼"}{Math.abs(df)}</span>:null}</div>;
+                    }
+                    if(view==="ytd"&&!m.ro&&ytdData){
+                      const yn=CAMPUSES.map(c=>ytdData[c]?.[m.key]).filter(v=>v!=null);
+                      const ya=yn.length?(yn.reduce((a,b)=>a+b,0)/yn.length).toFixed(1):null;
+                      extra=<div style={{fontSize:10,color:"#60a5fa"}}>YTD {ya??"—"}</div>;
+                    }
+                    return <td key={m.key} style={{padding:"8px",textAlign:"center",fontSize:11,background:isSp?"#f5f3ff":"transparent"}}>
+                      {avg!==null?<div><div style={{fontWeight:800,color:"#1f2937"}}>{sum}</div><div style={{color:"#6b7280"}}>avg {avg}</div>{extra}</div>:"—"}
+                    </td>;
+                  })}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Legend */}
+          <div style={{display:"flex",gap:16,marginTop:12,fontSize:11,color:"#6b7280",flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:12,height:12,borderRadius:3,background:"#dcfce7",border:"1px solid #86efac",display:"inline-block"}}></span>On goal</span>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:12,height:12,borderRadius:3,background:"#fef9c3",border:"1px solid #fde047",display:"inline-block"}}></span>75–99% of goal</span>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:12,height:12,borderRadius:3,background:"#fee2e2",border:"1px solid #fca5a5",display:"inline-block"}}></span>Below goal</span>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:12,height:12,borderRadius:3,background:"#eff6ff",border:"1px solid #bfdbfe",display:"inline-block"}}></span>Auto YTD avg</span>
+            <span style={{marginLeft:8,fontStyle:"italic"}}>Click a campus name to open its detail drawer. Save before switching weeks.</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.render(<App/>, document.getElementById("root"));
+</script>
+</body>
+</html>
