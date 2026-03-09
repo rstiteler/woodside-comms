@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Woodside Comms — Tools & Templates</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0e0e0e;
+      --surface: #161616;
+      --border: #2a2a2a;
+      --accent: #c8a96e;
+      --accent-dim: rgba(200, 169, 110, 0.12);
+      --text: #e8e4dc;
+      --muted: #6b6560;
+      --tag-bg: #1e1e1e;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Grain overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 999;
+      opacity: 0.4;
+    }
+
+    /* Header */
+    header {
+      padding: 4rem 2rem 3rem;
+      max-width: 960px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: end;
+      gap: 2rem;
+      border-bottom: 1px solid var(--border);
+      animation: fadeUp 0.6s ease both;
+    }
+
+    .header-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+      font-weight: 400;
+    }
+
+    header h1 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(2.4rem, 5vw, 3.6rem);
+      font-weight: 300;
+      line-height: 1.1;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+
+    header h1 em {
+      font-style: italic;
+      color: var(--accent);
+    }
+
+    .header-meta {
+      text-align: right;
+      font-size: 0.7rem;
+      color: var(--muted);
+      line-height: 1.8;
+    }
+
+    .header-meta a {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.2s;
+    }
+
+    .header-meta a:hover { border-color: var(--accent); }
+
+    /* Search / filter bar */
+    .controls {
+      max-width: 960px;
+      margin: 2.5rem auto 0;
+      padding: 0 2rem;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+      animation: fadeUp 0.6s 0.1s ease both;
+    }
+
+    .search-wrap {
+      position: relative;
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .search-wrap input {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      padding: 0.6rem 1rem 0.6rem 2.4rem;
+      outline: none;
+      transition: border-color 0.2s;
+      letter-spacing: 0.02em;
+    }
+
+    .search-wrap input:focus { border-color: var(--accent); }
+    .search-wrap input::placeholder { color: var(--muted); }
+
+    .search-icon {
+      position: absolute;
+      left: 0.85rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 0.75rem;
+      pointer-events: none;
+    }
+
+    .filter-tags {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+
+    .filter-tag {
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.4rem 0.75rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .filter-tag:hover, .filter-tag.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    /* Grid */
+    .grid {
+      max-width: 960px;
+      margin: 2.5rem auto 0;
+      padding: 0 2rem 6rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+    }
+
+    /* Tool card */
+    .card {
+      background: var(--bg);
+      padding: 1.75rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      transition: background 0.2s;
+      position: relative;
+      overflow: hidden;
+      animation: fadeUp 0.5s ease both;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: var(--accent-dim);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .card:hover { background: var(--surface); }
+    .card:hover::after { opacity: 1; }
+
+    .card-icon {
+      font-size: 1.4rem;
+      line-height: 1;
+    }
+
+    .card-tag {
+      font-size: 0.6rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .card-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.3rem;
+      font-weight: 400;
+      line-height: 1.2;
+      color: var(--text);
+    }
+
+    .card-desc {
+      font-size: 0.7rem;
+      color: var(--muted);
+      line-height: 1.7;
+      flex: 1;
+    }
+
+    .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 0.85rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.65rem;
+      color: var(--muted);
+    }
+
+    .card-arrow {
+      color: var(--accent);
+      font-size: 0.9rem;
+      transition: transform 0.2s;
+    }
+
+    .card:hover .card-arrow { transform: translateX(4px); }
+
+    /* Placeholder card */
+    .card.placeholder {
+      border: 1px dashed var(--border);
+      background: transparent;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      opacity: 0.4;
+      cursor: default;
+      min-height: 180px;
+    }
+
+    .card.placeholder::after { display: none; }
+    .card.placeholder:hover { background: transparent; }
+
+    .placeholder-inner { color: var(--muted); font-size: 0.7rem; line-height: 2; }
+    .placeholder-plus { font-size: 1.5rem; color: var(--border); display: block; margin-bottom: 0.5rem; }
+
+    /* Empty state */
+    .empty-state {
+      grid-column: 1 / -1;
+      background: var(--bg);
+      padding: 4rem 2rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.75rem;
+    }
+
+    /* Footer */
+    footer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      padding: 0.85rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      z-index: 10;
+    }
+
+    .footer-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-right: 0.5rem;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Stagger cards */
+    .card:nth-child(1) { animation-delay: 0.15s; }
+    .card:nth-child(2) { animation-delay: 0.2s; }
+    .card:nth-child(3) { animation-delay: 0.25s; }
+    .card:nth-child(4) { animation-delay: 0.3s; }
+    .card:nth-child(5) { animation-delay: 0.35s; }
+    .card:nth-child(6) { animation-delay: 0.4s; }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 600px) {
+      header { grid-template-columns: 1fr; }
+      .header-meta { text-align: left; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <p class="header-label">Woodside Bible Church</p>
+      <h1>Comms <em>&</em> Creative<br>Tool Hub</h1>
+    </div>
+    <div class="header-meta">
+      <div id="tool-count">— tools</div>
+      <div>GitHub Pages</div>
+      <div><a href="https://github.com" target="_blank">View Repository →</a></div>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input type="text" id="search" placeholder="Search tools..." autocomplete="off" />
+    </div>
+    <div class="filter-tags" id="filters">
+      <button class="filter-tag active" data-filter="all">All</button>
+      <button class="filter-tag" data-filter="campaign">Campaign</button>
+      <button class="filter-tag" data-filter="social">Social</button>
+      <button class="filter-tag" data-filter="sermon">Sermon</button>
+      <button class="filter-tag" data-filter="admin">Admin</button>
+    </div>
+  </div>
+
+  <main class="grid" id="grid">
+
+    <!-- EXAMPLE TOOLS — replace href with actual GitHub Pages paths -->
+
+    <a class="card" href="./tools/sermon-content-manager/index.html" data-tags="sermon admin">
+      <div class="card-icon">📋</div>
+      <div class="card-tag">Sermon · Admin</div>
+      <div class="card-title">Sermon Content Manager</div>
+      <div class="card-desc">Manage sermon series details, speaker info, scripture references, and series artwork in one place.</div>
+      <div class="card-footer">
+        <span>sermon-content-manager</span>
+        <span class="card-arrow">→</span>
+      </div>
+    </a>
+
+    <a class="card" href="./tools/see-jesus-campaign/index.html" data-tags="campaign">
+      <div class="card-icon">✦</div>
+      <div class="card-tag">Campaign</div>
+      <div class="card-title">See Jesus Campaign Hub</div>
+      <div class="card-desc">Central resource for the See Jesus capital campaign — assets, copy guidelines, and tracking tools.</div>
+      <div class="card-footer">
+        <span>see-jesus-campaign</span>
+        <span class="card-arrow">→</span>
+      </div>
+    </a>
+
+    <a class="card" href="./tools/social-asset-spec/index.html" data-tags="social">
+      <div class="card-icon">◻</div>
+      <div class="card-tag">Social</div>
+      <div class="card-title">Social Asset Spec Sheet</div>
+      <div class="card-desc">Quick reference for image dimensions, copy limits, and format requirements across all platforms.</div>
+      <div class="card-footer">
+        <span>social-asset-spec</span>
+        <span class="card-arrow">→</span>
+      </div>
+    </a>
+
+    <a class="card" href="./tools/naming-conventions/index.html" data-tags="admin">
+      <div class="card-icon">⌗</div>
+      <div class="card-tag">Admin</div>
+      <div class="card-title">File Naming Conventions</div>
+      <div class="card-desc">Standardized naming reference for all comms and creative deliverables across campaigns and series.</div>
+      <div class="card-footer">
+        <span>naming-conventions</span>
+        <span class="card-arrow">→</span>
+      </div>
+    </a>
+
+    <a class="card" href="./tools/qr-tracker/index.html" data-tags="campaign admin">
+      <div class="card-icon">⬡</div>
+      <div class="card-tag">Campaign · Admin</div>
+      <div class="card-title">QR & Link Tracker</div>
+      <div class="card-desc">Track and distinguish QR code versus direct link traffic sources across active campaigns.</div>
+      <div class="card-footer">
+        <span>qr-tracker</span>
+        <span class="card-arrow">→</span>
+      </div>
+    </a>
+
+    <div class="card placeholder">
+      <div class="placeholder-inner">
+        <span class="placeholder-plus">+</span>
+        Add a tool by dropping<br>an HTML file into<br><code>/tools/your-tool/index.html</code>
+      </div>
+    </div>
+
+  </main>
+
+  <footer>
+    <span><span class="footer-dot"></span>Woodside Comms · Internal Use</span>
+    <span id="last-updated"></span>
+  </footer>
+
+  <script>
+    // Tool count
+    const cards = document.querySelectorAll('.card:not(.placeholder)');
+    document.getElementById('tool-count').textContent = `${cards.length} tools`;
+
+    // Last updated
+    document.getElementById('last-updated').textContent =
+      'Updated ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+    // Filter logic
+    const filterBtns = document.querySelectorAll('.filter-tag');
+    let activeFilter = 'all';
+    let searchVal = '';
+
+    function applyFilters() {
+      let visible = 0;
+      cards.forEach(card => {
+        const tags = (card.dataset.tags || '').split(' ');
+        const title = card.querySelector('.card-title')?.textContent.toLowerCase() || '';
+        const desc = card.querySelector('.card-desc')?.textContent.toLowerCase() || '';
+        const matchesFilter = activeFilter === 'all' || tags.includes(activeFilter);
+        const matchesSearch = !searchVal || title.includes(searchVal) || desc.includes(searchVal);
+        const show = matchesFilter && matchesSearch;
+        card.classList.toggle('hidden', !show);
+        if (show) visible++;
+      });
+
+      // Empty state
+      let empty = document.getElementById('empty-state');
+      if (visible === 0 && !empty) {
+        empty = document.createElement('div');
+        empty.id = 'empty-state';
+        empty.className = 'empty-state';
+        empty.textContent = 'No tools match your search.';
+        document.getElementById('grid').appendChild(empty);
+      } else if (visible > 0 && empty) {
+        empty.remove();
+      }
+    }
+
+    filterBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        filterBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeFilter = btn.dataset.filter;
+        applyFilters();
+      });
+    });
+
+    document.getElementById('search').addEventListener('input', e => {
+      searchVal = e.target.value.toLowerCase().trim();
+      applyFilters();
+    });
+  </script>
+</body>
+</html>
